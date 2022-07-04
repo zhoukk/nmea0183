@@ -43,18 +43,24 @@ readline_pop(readline_t *rl) {
     while (cur < rl->len && rl->buffer[cur++] != '\n')
         ;
 
+    if (cur == rl->len) {
+        return 0;
+    }
+
     len = cur - rl->cursor;
     if (len == 0) {
         return 0;
     }
 
-    line = (char *)malloc(len);
-    if (0 == line) {
+    line = (char *)malloc(len + 1);
+    if (line == 0) {
         return 0;
     }
 
     memcpy(line, rl->buffer + rl->cursor, len);
     rl->cursor = cur;
+    line[len] = '\0';
+
     return line;
 }
 

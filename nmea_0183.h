@@ -54,6 +54,7 @@ typedef enum {
     NMEA_SENTENCE_RMC,
     NMEA_SENTENCE_VTG,
     NMEA_SENTENCE_GLL,
+    NMEA_SENTENCE_TXT,
     NMEA_SENTENCE_ZDA,
 } nmea_sentence_type_t;
 
@@ -68,6 +69,16 @@ typedef enum {
     NMEA_STATUS_VALID = 'A',
     NMEA_STATUS_INVALID = 'V',
 } nmea_status_t;
+
+typedef enum {
+    NMEA_FAA_UNKNOWN = 0,
+    NMEA_FAA_AUTONOMOUS = 'A',
+    NMEA_FAA_DIFFERENTIAL = 'D',
+    NMEA_FAA_ESTIMATED = 'E',
+    NMEA_FAA_NOTVALID = 'N',
+    NMEA_FAA_SIMULATED = 'S',
+    NMEA_FAA_MANUAL = 'M',
+} nmea_faa_mode_t;
 
 typedef struct {
     int day;
@@ -128,7 +139,9 @@ typedef struct {
     int num_satellites;
     double hdop;
     double altitude;
+    char altitude_unit;
     double separation;
+    char separation_unit;
     double dgps_age;
     int dgps_id;
 } nmea_sentence_gga_t;
@@ -166,9 +179,9 @@ typedef enum {
 } nmea_gsa_mode_t;
 
 typedef enum {
-    NMEA_GSA_FIX_NONE = 1,
-    NMEA_GSA_FIX_2D = 2,
-    NMEA_GSA_FIX_3D = 3,
+    NMEA_GSA_FIX_NONE = '1',
+    NMEA_GSA_FIX_2D = '2',
+    NMEA_GSA_FIX_3D = '3',
 } nmea_gsa_fix_type_t;
 
 typedef struct {
@@ -254,6 +267,7 @@ typedef struct {
     double course;
     nmea_date_t date;
     double variation;
+    nmea_faa_mode_t faa_mode;
 } nmea_sentence_rmc_t;
 
 /*
@@ -276,9 +290,14 @@ typedef struct {
  */
 typedef struct {
     double true_track_degrees;
+    char true_type;
     double magnetic_track_degrees;
+    char magnetic_type;
     double speed_knots;
+    char speed_knots_unit;
     double speed_kph;
+    char speed_kph_unit;
+    nmea_faa_mode_t faa_mode;
 } nmea_sentence_vtg_t;
 
 /*
@@ -303,7 +322,18 @@ typedef struct {
     double longitude;
     nmea_time_t time;
     nmea_status_t status;
+    nmea_faa_mode_t faa_mode;
 } nmea_sentence_gll_t;
+
+/*
+ ** TXT - TypeTXT
+ */
+typedef struct {
+    int total_number;
+    int number;
+    int id;
+    char *message;
+} nmea_sentence_txt_t;
 
 /*
  ** ZDA - Time & Date
@@ -335,6 +365,7 @@ typedef struct {
         nmea_sentence_rmc_t rmc;
         nmea_sentence_vtg_t vtg;
         nmea_sentence_gll_t gll;
+        nmea_sentence_txt_t txt;
         nmea_sentence_zda_t zda;
     };
 } nmea_0183_t;
@@ -342,8 +373,6 @@ typedef struct {
 int nmea_0183_parse(char *sentence, nmea_0183_t *p);
 
 int nmea_0183_serialize(const nmea_0183_t *p, char sentence[128]);
-
-void nmea_0183_print(nmea_0183_t *p);
 
 void nmea_bd09_gcj02(double lng, double lat, double *glng, double *glat);
 
@@ -573,6 +602,8 @@ _nmea_get_sentence_type(nmea_token_t *token) {
         return NMEA_SENTENCE_VTG;
     } else if (0 == strcmp(type, "GLL")) {
         return NMEA_SENTENCE_GLL;
+    } else if (0 == strcmp(type, "TXT")) {
+        return NMEA_SENTENCE_TXT;
     } else if (0 == strcmp(type, "ZDA")) {
         return NMEA_SENTENCE_ZDA;
     }
@@ -595,6 +626,8 @@ _nmea_get_sentence_name(nmea_sentence_type_t type) {
         return "VTG";
     case NMEA_SENTENCE_GLL:
         return "GLL";
+    case NMEA_SENTENCE_TXT:
+        return "TXT";
     case NMEA_SENTENCE_ZDA:
         return "ZDA";
     default:
@@ -627,6 +660,17 @@ _token_int(nmea_token_t *t, int index, int *value) {
 }
 
 static int
+_token_string(nmea_token_t *t, int index, char **value) {
+    if (index >= t->args_num) {
+        return -1;
+    }
+
+    *value = t->args[index];
+
+    return 0;
+}
+
+static int
 _token_fix_quality(nmea_token_t *t, int index, nmea_fix_quality_t *value) {
     if (index >= t->args_num) {
         return -1;
@@ -638,6 +682,19 @@ _token_fix_quality(nmea_token_t *t, int index, nmea_fix_quality_t *value) {
     }
 
     *value = (nmea_fix_quality_t)v;
+
+    return 0;
+}
+
+static int
+_token_faa_mode(nmea_token_t *t, int index, nmea_faa_mode_t *value) {
+    if (index >= t->args_num) {
+        return -1;
+    }
+
+    char v = t->args[index][0];
+
+    *value = (nmea_faa_mode_t)v;
 
     return 0;
 }
@@ -675,6 +732,19 @@ _token_gsa_fix_type(nmea_token_t *t, int index, nmea_gsa_fix_type_t *value) {
 }
 
 static int
+_token_track_type(nmea_token_t *t, int index, char *value) {
+    if (index >= t->args_num) {
+        return -1;
+    }
+
+    char v = t->args[index][0];
+
+    *value = v;
+
+    return 0;
+}
+
+static int
 _token_status(nmea_token_t *t, int index, nmea_status_t *value) {
     if (index >= t->args_num) {
         return -1;
@@ -691,6 +761,19 @@ _token_status(nmea_token_t *t, int index, nmea_status_t *value) {
 }
 
 static int
+_token_unit(nmea_token_t *t, int index, char *value) {
+    if (index >= t->args_num) {
+        return -1;
+    }
+
+    char v = t->args[index][0];
+
+    *value = v;
+
+    return 0;
+}
+
+static int
 _token_latitude(nmea_token_t *t, int index, double *value) {
     if (index + 1 >= t->args_num) {
         return -1;
@@ -699,7 +782,7 @@ _token_latitude(nmea_token_t *t, int index, double *value) {
     double dv = atof(t->args[index]);
 
     nmea_dir_t cv = (nmea_dir_t)t->args[index + 1][0];
-    if (cv != NMEA_DIR_NORTH && cv != NMEA_DIR_SOUTH) {
+    if (cv != '\0' && cv != NMEA_DIR_NORTH && cv != NMEA_DIR_SOUTH) {
         return -1;
     }
 
@@ -725,7 +808,7 @@ _token_longitude(nmea_token_t *t, int index, double *value) {
     double dv = atof(t->args[index]);
 
     nmea_dir_t cv = (nmea_dir_t)t->args[index + 1][0];
-    if (cv != NMEA_DIR_EAST && cv != NMEA_DIR_WEST) {
+    if (cv != '\0' && cv != NMEA_DIR_EAST && cv != NMEA_DIR_WEST) {
         return -1;
     }
 
@@ -751,10 +834,6 @@ _token_variation(nmea_token_t *t, int index, double *value) {
     double dv = atof(t->args[index]);
 
     nmea_dir_t cv = (nmea_dir_t)t->args[index + 1][0];
-    if (cv != NMEA_DIR_EAST && cv != NMEA_DIR_WEST) {
-        return -1;
-    }
-
     if (cv == NMEA_DIR_WEST) {
         dv *= -1;
     }
@@ -854,7 +933,15 @@ _nmea_parse_gga(nmea_token_t *token, nmea_0183_t *p) {
         return -1;
     }
 
+    if (_token_unit(token, 9, &p->gga.altitude_unit)) {
+        return -1;
+    }
+
     if (_token_double(token, 10, &p->gga.separation)) {
+        return -1;
+    }
+
+    if (_token_unit(token, 11, &p->gga.separation_unit)) {
         return -1;
     }
 
@@ -902,12 +989,24 @@ _nmea_parse_gsa(nmea_token_t *token, nmea_0183_t *p) {
 
 static int
 _nmea_parse_gsv(nmea_token_t *token, nmea_0183_t *p) {
-    if (_token_int(token, 0, &p->gsv.message_number)) {
+
+    if (_token_int(token, 0, &p->gsv.total_messages)) {
         return -1;
     }
 
-    if (_token_int(token, 0, &p->gsv.number_svs_inview)) {
+    if (_token_int(token, 1, &p->gsv.message_number)) {
         return -1;
+    }
+
+    if (_token_int(token, 2, &p->gsv.number_svs_inview)) {
+        return -1;
+    }
+
+    for (int i = 0; i < 4; i++) {
+        _token_int(token, i * 4 + 3, &p->gsv.sats[i].prn);
+        _token_int(token, i * 4 + 4, &p->gsv.sats[i].elevation);
+        _token_int(token, i * 4 + 5, &p->gsv.sats[i].azimuth);
+        _token_int(token, i * 4 + 6, &p->gsv.sats[i].snr);
     }
 
     return 0;
@@ -948,6 +1047,8 @@ _nmea_parse_rmc(nmea_token_t *token, nmea_0183_t *p) {
         return -1;
     }
 
+    _token_faa_mode(token, 11, &p->rmc.faa_mode);
+
     return 0;
 }
 
@@ -958,7 +1059,15 @@ _nmea_parse_vtg(nmea_token_t *token, nmea_0183_t *p) {
         return -1;
     }
 
+    if (_token_track_type(token, 1, &p->vtg.true_type)) {
+        return -1;
+    }
+
     if (_token_double(token, 2, &p->vtg.magnetic_track_degrees)) {
+        return -1;
+    }
+
+    if (_token_track_type(token, 3, &p->vtg.magnetic_type)) {
         return -1;
     }
 
@@ -966,9 +1075,19 @@ _nmea_parse_vtg(nmea_token_t *token, nmea_0183_t *p) {
         return -1;
     }
 
+    if (_token_unit(token, 5, &p->vtg.speed_knots_unit)) {
+        return -1;
+    }
+
     if (_token_double(token, 6, &p->vtg.speed_kph)) {
         return -1;
     }
+
+    if (_token_unit(token, 7, &p->vtg.speed_kph_unit)) {
+        return -1;
+    }
+
+    _token_faa_mode(token, 8, &p->vtg.faa_mode);
 
     return 0;
 }
@@ -989,6 +1108,30 @@ _nmea_parse_gll(nmea_token_t *token, nmea_0183_t *p) {
     }
 
     if (_token_status(token, 5, &p->gll.status)) {
+        return -1;
+    }
+
+    _token_faa_mode(token, 6, &p->gll.faa_mode);
+
+    return 0;
+}
+
+static int
+_nmea_parse_txt(nmea_token_t *token, nmea_0183_t *p) {
+
+    if (_token_int(token, 0, &p->txt.total_number)) {
+        return -1;
+    }
+
+    if (_token_int(token, 1, &p->txt.number)) {
+        return -1;
+    }
+
+    if (_token_int(token, 2, &p->txt.id)) {
+        return -1;
+    }
+
+    if (_token_string(token, 3, &p->txt.message)) {
         return -1;
     }
 
@@ -1103,6 +1246,8 @@ nmea_0183_parse(char *sentence, nmea_0183_t *p) {
         return _nmea_parse_vtg(token, p);
     case NMEA_SENTENCE_GLL:
         return _nmea_parse_gll(token, p);
+    case NMEA_SENTENCE_TXT:
+        return _nmea_parse_txt(token, p);
     case NMEA_SENTENCE_ZDA:
         return _nmea_parse_zda(token, p);
     case NMEA_SENTENCE_UNKNOWN:
@@ -1115,12 +1260,12 @@ nmea_0183_parse(char *sentence, nmea_0183_t *p) {
 
 static int
 _serialize_time(const nmea_time_t *time, char *sentence) {
-    return sprintf(sentence, "%02d%02d%02d.%03d,", time->hour, time->minute, time->second, time->microsecond);
+    return sprintf(sentence, ",%02d%02d%02d.%02d", time->hour, time->minute, time->second, time->microsecond);
 }
 
 static int
 _serialize_date(const nmea_date_t *date, char *sentence) {
-    return sprintf(sentence, "%02d%02d%02d,", date->day, date->month, date->year);
+    return sprintf(sentence, ",%02d%02d%02d", date->day, date->month, date->year);
 }
 
 static int
@@ -1136,7 +1281,7 @@ _serialize_latitude(double latitude, char *sentence) {
     double minutes = (latitude - value / 100.0) * 60.0;
     double v = value + minutes;
 
-    return sprintf(sentence, "%08.04f,%c,", v, dir);
+    return sprintf(sentence, ",%.5f,%c", v, dir);
 }
 
 static int
@@ -1152,7 +1297,7 @@ _serialize_longitude(double longitude, char *sentence) {
     double minutes = (longitude - value / 100.0) * 60.0;
     double v = value + minutes;
 
-    return sprintf(sentence, "%08.04f,%c,", v, dir);
+    return sprintf(sentence, ",%.5f,%c", v, dir);
 }
 
 static int
@@ -1163,21 +1308,66 @@ _serialize_variation(double variation, char *sentence) {
         dir = 'W';
         variation *= -1;
     }
-    return sprintf(sentence, "%08.04f%c,", variation, dir);
+    if (variation == 0.0) {
+        return sprintf(sentence, ",,");
+    }
+    return sprintf(sentence, ",%g,%c", variation, dir);
+}
+
+static int
+_serialize_faa_mode(nmea_faa_mode_t faa_mode, char *sentence) {
+    return sprintf(sentence, ",%c", (char)faa_mode);
 }
 
 static int
 _serialize_status(nmea_status_t status, char *sentence) {
-    char s = 'V';
-    if (status == NMEA_STATUS_VALID) {
-        s = 'A';
-    }
-    return sprintf(sentence, "%c,", s);
+    return sprintf(sentence, ",%c", (char)status);
+}
+
+static int
+_serialize_gsa_mode(nmea_gsa_mode_t gsa_mode, char *sentence) {
+    return sprintf(sentence, ",%c", (char)gsa_mode);
+}
+
+static int
+_serialize_gsa_fix_type(nmea_gsa_fix_type_t fix_type, char *sentence) {
+    return sprintf(sentence, ",%c", (char)fix_type);
+}
+
+static int
+_serialize_fix_quality(nmea_fix_quality_t fix_quality, char *sentence) {
+    return sprintf(sentence, ",%c", (char)fix_quality);
+}
+
+static int
+_serialize_track_type(char track_type, char *sentence) {
+    return sprintf(sentence, ",%c", track_type);
 }
 
 static int
 _serialize_double(double value, char *sentence) {
-    return sprintf(sentence, "%f,", value);
+    if (value == 0.0) {
+        return sprintf(sentence, ",");
+    }
+    return sprintf(sentence, ",%g", value);
+}
+
+static int
+_serialize_int(int value, char *sentence) {
+    if (value == 0) {
+        return sprintf(sentence, ",");
+    }
+    return sprintf(sentence, ",%02d", value);
+}
+
+static int
+_serialize_string(char *value, char *sentence) {
+    return sprintf(sentence, ",%s", value);
+}
+
+static int
+_serialize_unit(char unit, char *sentence) {
+    return sprintf(sentence, ",%c", unit);
 }
 
 static int
@@ -1190,19 +1380,72 @@ _nmea_serialize_gga(const nmea_0183_t *p, char sentence[128]) {
 
     offset += _serialize_longitude(p->gga.longitude, sentence + offset);
 
-    return 0;
+    offset += _serialize_fix_quality(p->gga.fix_quality, sentence + offset);
+
+    offset += _serialize_int(p->gga.num_satellites, sentence + offset);
+
+    offset += _serialize_double(p->gga.hdop, sentence + offset);
+
+    offset += _serialize_double(p->gga.altitude, sentence + offset);
+
+    offset += _serialize_unit(p->gga.altitude_unit, sentence + offset);
+
+    offset += _serialize_double(p->gga.separation, sentence + offset);
+
+    offset += _serialize_unit(p->gga.separation_unit, sentence + offset);
+
+    offset += _serialize_double(p->gga.dgps_age, sentence + offset);
+
+    offset += _serialize_int(p->gga.dgps_id, sentence + offset);
+
+    return offset;
 }
 
 static int
 _nmea_serialize_gsa(const nmea_0183_t *p, char sentence[128]) {
+    int offset = 0;
 
-    return 0;
+    offset += _serialize_gsa_mode(p->gsa.mode, sentence + offset);
+
+    offset += _serialize_gsa_fix_type(p->gsa.fix_type, sentence + offset);
+
+    for (int i = 0; i < 12; i++) {
+        offset += _serialize_int(p->gsa.sv[i], sentence + offset);
+    }
+
+    offset += _serialize_double(p->gsa.pdop, sentence + offset);
+
+    offset += _serialize_double(p->gsa.hdop, sentence + offset);
+
+    offset += _serialize_double(p->gsa.vdop, sentence + offset);
+
+    return offset;
 }
 
 static int
 _nmea_serialize_gsv(const nmea_0183_t *p, char sentence[128]) {
+    int offset = 0;
 
-    return 0;
+    offset += _serialize_int(p->gsv.total_messages, sentence + offset);
+
+    offset += _serialize_int(p->gsv.message_number, sentence + offset);
+
+    offset += _serialize_int(p->gsv.number_svs_inview, sentence + offset);
+
+    for (int i = 0; i < 4; i++) {
+        if (p->gsv.sats[i].prn != 0 || p->gsv.sats[i].elevation != 0 || p->gsv.sats[i].azimuth != 0 ||
+            p->gsv.sats[i].snr != 0) {
+            offset += _serialize_int(p->gsv.sats[i].prn, sentence + offset);
+
+            offset += _serialize_int(p->gsv.sats[i].elevation, sentence + offset);
+
+            offset += _serialize_int(p->gsv.sats[i].azimuth, sentence + offset);
+
+            offset += _serialize_int(p->gsv.sats[i].snr, sentence + offset);
+        }
+    }
+
+    return offset;
 }
 
 static int
@@ -1225,25 +1468,89 @@ _nmea_serialize_rmc(const nmea_0183_t *p, char sentence[128]) {
 
     offset += _serialize_variation(p->rmc.variation, sentence + offset);
 
-    return 0;
+    offset += _serialize_faa_mode(p->rmc.faa_mode, sentence + offset);
+
+    return offset;
 }
 
 static int
 _nmea_serialize_vtg(const nmea_0183_t *p, char sentence[128]) {
+    int offset = 0;
 
-    return 0;
+    offset += _serialize_double(p->vtg.true_track_degrees, sentence + offset);
+
+    offset += _serialize_track_type(p->vtg.true_type, sentence + offset);
+
+    offset += _serialize_double(p->vtg.magnetic_track_degrees, sentence + offset);
+
+    offset += _serialize_track_type(p->vtg.magnetic_type, sentence + offset);
+
+    offset += _serialize_double(p->vtg.speed_knots, sentence + offset);
+
+    offset += _serialize_unit(p->vtg.speed_knots_unit, sentence + offset);
+
+    offset += _serialize_double(p->vtg.speed_kph, sentence + offset);
+
+    offset += _serialize_unit(p->vtg.speed_kph_unit, sentence + offset);
+
+    if (p->vtg.faa_mode != NMEA_FAA_UNKNOWN) {
+        offset += _serialize_faa_mode(p->vtg.faa_mode, sentence + offset);
+    }
+
+    return offset;
 }
 
 static int
 _nmea_serialize_gll(const nmea_0183_t *p, char sentence[128]) {
+    int offset = 0;
 
-    return 0;
+    offset += _serialize_latitude(p->gll.latitude, sentence + offset);
+
+    offset += _serialize_longitude(p->gll.longitude, sentence + offset);
+
+    offset += _serialize_time(&p->gll.time, sentence + offset);
+
+    offset += _serialize_status(p->gll.status, sentence + offset);
+
+    if (p->gll.faa_mode != NMEA_FAA_UNKNOWN) {
+        offset += _serialize_faa_mode(p->gll.faa_mode, sentence + offset);
+    }
+
+    return offset;
+}
+
+static int
+_nmea_serialize_txt(const nmea_0183_t *p, char sentence[128]) {
+    int offset = 0;
+
+    offset += _serialize_int(p->txt.total_number, sentence + offset);
+
+    offset += _serialize_int(p->txt.number, sentence + offset);
+
+    offset += _serialize_int(p->txt.id, sentence + offset);
+
+    offset += _serialize_string(p->txt.message, sentence + offset);
+
+    return offset;
 }
 
 static int
 _nmea_serialize_zda(const nmea_0183_t *p, char sentence[128]) {
+    int offset = 0;
 
-    return 0;
+    offset += _serialize_time(&p->zda.time, sentence + offset);
+
+    offset += _serialize_int(p->zda.date.day, sentence + offset);
+
+    offset += _serialize_int(p->zda.date.month, sentence + offset);
+
+    offset += _serialize_int(p->zda.date.year, sentence + offset);
+
+    offset += _serialize_int(p->zda.hour_offset, sentence + offset);
+
+    offset += _serialize_int(p->zda.minute_offset, sentence + offset);
+
+    return offset;
 }
 
 int
@@ -1255,43 +1562,46 @@ nmea_0183_serialize(const nmea_0183_t *p, char sentence[128]) {
         return -1;
     }
 
-    int n = sprintf(sentence, "$%s%s,", talker, name);
+    int n = sprintf(sentence, "$%s%s", talker, name);
 
     switch (p->type) {
     case NMEA_SENTENCE_GGA:
-        return _nmea_serialize_gga(p, sentence + n);
+        n += _nmea_serialize_gga(p, sentence + n);
+        break;
     case NMEA_SENTENCE_GSA:
-        return _nmea_serialize_gsa(p, sentence + n);
+        n += _nmea_serialize_gsa(p, sentence + n);
+        break;
     case NMEA_SENTENCE_GSV:
-        return _nmea_serialize_gsv(p, sentence + n);
+        n += _nmea_serialize_gsv(p, sentence + n);
+        break;
     case NMEA_SENTENCE_RMC:
-        return _nmea_serialize_rmc(p, sentence + n);
+        n += _nmea_serialize_rmc(p, sentence + n);
+        break;
     case NMEA_SENTENCE_VTG:
-        return _nmea_serialize_vtg(p, sentence + n);
+        n += _nmea_serialize_vtg(p, sentence + n);
+        break;
     case NMEA_SENTENCE_GLL:
-        return _nmea_serialize_gll(p, sentence + n);
+        n += _nmea_serialize_gll(p, sentence + n);
+        break;
+    case NMEA_SENTENCE_TXT:
+        n += _nmea_serialize_txt(p, sentence + n);
+        break;
     case NMEA_SENTENCE_ZDA:
-        return _nmea_serialize_zda(p, sentence + n);
+        n += _nmea_serialize_zda(p, sentence + n);
+        break;
     case NMEA_SENTENCE_UNKNOWN:
     default:
         return -1;
     }
 
-    return 0;
-}
-
-void
-nmea_0183_print(nmea_0183_t *p) {
-    switch (p->type) {
-    case NMEA_SENTENCE_RMC: {
-        double lng, lat;
-        nmea_wgs84_bd09(p->rmc.longitude, p->rmc.latitude, &lng, &lat);
-        printf("%f %f\n", lng, lat);
-    } break;
-
-    default:
-        break;
+    uint8_t checksum = 0x00;
+    for (int i = 1; i < n; i++) {
+        checksum ^= sentence[i];
     }
+
+    sprintf(sentence + n, "*%02X\r\n", checksum);
+
+    return 0;
 }
 
 static const double PI = 3.1415926535897932384626;
@@ -1300,107 +1610,113 @@ static const double AXIS = 6378245.0;
 static const double OFFSET = 0.00669342162296594323;
 
 static void
-_transform(double lng, double lat, double *dlng, double *dlat) {
-    double longlat = lng * lat;
-    double abs_x = sqrt(fabs(lng));
-    double latpi = lat * PI;
-    double lngpi = lng * PI;
-    double d = 20.0 * sin(6.0 * lngpi) + 20.0 * sin(2.0 * lngpi);
-    double x = d + 20.0 * sin(latpi) + 40.0 * sin(latpi / 3.0);
-    double y = d + 20.0 * sin(lngpi) + 40.0 * sin(lngpi / 3.0);
+_transform(double longitude, double latitude, double *out_longitude, double *out_latitude) {
+    double longlat = longitude * latitude;
+    double abs_x = sqrt(fabs(longitude));
+    double longitude_pi = longitude * PI;
+    double latitude_pi = latitude * PI;
+    double d = 20.0 * sin(6.0 * longitude_pi) + 20.0 * sin(2.0 * longitude_pi);
+    double x = d + 20.0 * sin(latitude_pi) + 40.0 * sin(latitude_pi / 3.0);
+    double y = d + 20.0 * sin(longitude_pi) + 40.0 * sin(longitude_pi / 3.0);
 
-    x += 160.0 * sin(latpi / 12.0) + 320 * sin(latpi / 30.0);
-    y += 150.0 * sin(lngpi / 12.0) + 300.0 * sin(lngpi / 30.0);
+    x += 160.0 * sin(latitude_pi / 12.0) + 320.0 * sin(latitude_pi / 30.0);
+    y += 150.0 * sin(longitude_pi / 12.0) + 300.0 * sin(longitude_pi / 30.0);
     x *= 2.0 / 3.0;
     y *= 2.0 / 3.0;
-    x += -100.0 + 2.0 * lng + 3.0 * lat + 0.2 * lat * lat + 0.1 * longlat + 0.2 * abs_x;
-    y += 300.0 + lng + 2.0 * lat + 0.1 * lng * lng + 0.1 * longlat + 0.1 * abs_x;
+    x += -100.0 + 2.0 * longitude + 3.0 * latitude + 0.2 * latitude * latitude + 0.1 * longlat + 0.2 * abs_x;
+    y += 300.0 + longitude + 2.0 * latitude + 0.1 * longitude * longitude + 0.1 * longlat + 0.1 * abs_x;
 
-    *dlat = x;
-    *dlng = y;
+    *out_latitude = x;
+    *out_longitude = y;
 }
 
 static void
-_delta(double lng, double lat, double *dlng, double *dlat) {
-    double x, y;
-    _transform(lat - 35.0, lng - 105.0, &x, &y);
+_delta(double longitude, double latitude, double *out_longitude, double *out_latitude) {
+    double d_lat, d_long;
+    _transform(longitude - 105.0, latitude - 35.0, &d_long, &d_lat);
 
-    double radlat = lat / 180.0 * PI;
-    double magic = sin(radlat);
+    double rad_latitude = latitude / 180.0 * PI;
+    double magic = sin(rad_latitude);
     magic = 1 - OFFSET * magic * magic;
     double sqrt_magic = sqrt(magic);
 
-    x = (x * 180.0) / ((AXIS * (1 - OFFSET)) / (magic * sqrt_magic) * PI);
-    y = (y * 180.0) / (AXIS / sqrt_magic * cos(radlat) * PI);
+    d_lat = (d_lat * 180.0) / ((AXIS * (1 - OFFSET)) / (magic * sqrt_magic) * PI);
+    d_long = (d_long * 180.0) / (AXIS / sqrt_magic * cos(rad_latitude) * PI);
 
-    *dlat = lat + x;
-    *dlng = lng + y;
+    *out_latitude = latitude + d_lat;
+    *out_longitude = longitude + d_long;
 }
 
 int
-nmea_in_china(double lng, double lat) {
-    if (lng < 72.004 || lng > 137.8347) {
+nmea_in_china(double longitude, double latitude) {
+    if (longitude < 72.004 || longitude > 135.05) {
         return 0;
     }
-    if (lat < 0.8293 || lat > 55.8271) {
+    if (latitude < 3.86 || latitude > 53.55) {
         return 0;
     }
     return 1;
 }
 
 void
-nmea_bd09_gcj02(double lng, double lat, double *glng, double *glat) {
-    double x = lng - 0.0065;
-    double y = lat - 0.006;
+nmea_bd09_gcj02(double longitude, double latitude, double *g_longitude, double *g_latitude) {
+    double x = longitude - 0.0065;
+    double y = latitude - 0.006;
 
     double z = sqrt(x * x + y * y) - 0.00002 * sin(y * X_PI);
     double theta = atan2(y, x) - 0.000003 * cos(x * X_PI);
 
-    *glng = z * cos(theta);
-    *glat = z * sin(theta);
+    *g_longitude = z * cos(theta);
+    *g_latitude = z * sin(theta);
 }
 
 void
-nmea_gcj02_bd09(double lng, double lat, double *blng, double *blat) {
-    double z = sqrt(lng * lng + lat * lat) + 0.00002 * sin(lat * X_PI);
-    double theta = atan2(lat, lng) + 0.000003 * cos(lng * X_PI);
+nmea_gcj02_bd09(double longitude, double latitude, double *b_longitude, double *b_latitude) {
+    double z = sqrt(longitude * longitude + latitude * latitude) + 0.00002 * sin(latitude * X_PI);
+    double theta = atan2(latitude, longitude) + 0.000003 * cos(longitude * X_PI);
 
-    *blng = z * cos(theta) + 0.0065;
-    *blat = z * sin(theta) + 0.006;
+    *b_longitude = z * cos(theta) + 0.0065;
+    *b_latitude = z * sin(theta) + 0.006;
 }
 
 void
-nmea_wgs84_gcj02(double lng, double lat, double *glng, double *glat) {
-    if (!nmea_in_china(lng, lat)) {
-        *glng = lng;
-        *glat = lat;
+nmea_wgs84_gcj02(double longitude, double latitude, double *g_longitude, double *g_latitude) {
+    if (!nmea_in_china(longitude, latitude)) {
+        *g_longitude = longitude;
+        *g_latitude = latitude;
         return;
     }
-    _delta(lng, lat, glng, glat);
+    _delta(longitude, latitude, g_longitude, g_latitude);
 }
 
 void
-nmea_gcj02_wgs84(double lat, double lng, double *wlat, double *wlng) {
-    double mlat, mlng;
+nmea_gcj02_wgs84(double longitude, double latitude, double *w_longitude, double *w_latitude) {
+    double m_longitude, m_latitude;
 
-    _delta(lng, lat, &mlng, &mlat);
+    if (!nmea_in_china(longitude, latitude)) {
+        *w_longitude = longitude;
+        *w_latitude = latitude;
+        return;
+    }
 
-    *wlat = lat * 2 - mlat;
-    *wlng = lng * 2 - mlng;
+    _delta(longitude, latitude, &m_longitude, &m_latitude);
+
+    *w_longitude = longitude * 2 - m_longitude;
+    *w_latitude = latitude * 2 - m_latitude;
 }
 
 void
-nmea_bd09_wgs84(double lat, double lng, double *wlat, double *wlng) {
-    double glat, glng;
-    nmea_bd09_gcj02(lng, lat, &glng, &glat);
-    nmea_gcj02_wgs84(glng, glat, wlng, wlat);
+nmea_bd09_wgs84(double longitude, double latitude, double *w_longitude, double *w_latitude) {
+    double g_longitude, g_latitude;
+    nmea_bd09_gcj02(longitude, latitude, &g_longitude, &g_latitude);
+    nmea_gcj02_wgs84(g_longitude, g_latitude, w_longitude, w_latitude);
 }
 
 void
-nmea_wgs84_bd09(double lat, double lng, double *blat, double *blng) {
-    double glat, glng;
-    nmea_wgs84_gcj02(lng, lat, &glng, &glat);
-    nmea_gcj02_bd09(glng, glat, blng, blat);
+nmea_wgs84_bd09(double longitude, double latitude, double *b_longitude, double *b_latitude) {
+    double g_longitude, g_latitude;
+    nmea_wgs84_gcj02(longitude, latitude, &g_longitude, &g_latitude);
+    nmea_gcj02_bd09(g_longitude, g_latitude, b_longitude, b_latitude);
 }
 
 #endif /* NMEA_0183_IMPLEMENTATION */

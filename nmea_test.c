@@ -32,29 +32,30 @@ main(int argc, char *argv[]) {
         while ((sentence = (readline_pop(&rl)))) {
             nmea_0183_t p;
 
-            nmea_0183_parse(sentence, &p);
-            nmea_0183_print(&p);
+            printf("s: %s\n", sentence);
+
+            int ret = nmea_0183_parse(sentence, &p);
+            if (ret != 0) {
+                printf("ret:%d\n", ret);
+            }
+
+            if (p.type == NMEA_SENTENCE_RMC) {
+                double longitude;
+                double latitude;
+                nmea_wgs84_bd09(p.rmc.longitude, p.rmc.latitude, &longitude, &latitude);
+                printf("gps: [%.10f,%.10f]\n", longitude, latitude);
+            }
 
             char buf[128] = {0};
             nmea_0183_serialize(&p, buf);
 
-            printf("s: %s\n", sentence);
             printf("d: %s\n", buf);
+
+            free(sentence);
         }
     }
 
     uart_close(fd);
-
-    // char sentence[] = "$GNGGA,203415.000,6325.6138,N,01021.4290,E,1,8,2.42,72.5,M,41.5,M,,*7C\r\n";
-    // char sentence[] = "$GPRMC,064216.00,A,3116.11411,N,12044.55665,E,0.212,,290622,,,A*7C\r\n";
-    // nmea_0183_t p;
-    // nmea_0183_parse(sentence, &p);
-    // nmea_0183_print(&p);
-
-    // char buf[128] = {0};
-    // nmea_0183_serialize(&p, buf);
-
-    // printf("%s\n", buf);
 
     return 0;
 }
