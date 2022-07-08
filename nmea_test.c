@@ -32,7 +32,7 @@ main(int argc, char *argv[]) {
         while ((sentence = (readline_pop(&rl)))) {
             nmea_0183_t p;
 
-            printf("s: %s\n", sentence);
+            // printf("s: %s\n", sentence);
 
             int ret = nmea_0183_parse(sentence, &p);
             if (ret != 0) {
@@ -42,14 +42,14 @@ main(int argc, char *argv[]) {
             if (p.type == NMEA_SENTENCE_RMC) {
                 double longitude;
                 double latitude;
-                nmea_wgs84_bd09(p.rmc.longitude, p.rmc.latitude, &longitude, &latitude);
-                printf("gps: [%.10f,%.10f]\n", longitude, latitude);
+                nmea_wgs84_gcj02(p.rmc.longitude, p.rmc.latitude, &longitude, &latitude);
+                printf("%.10f,%.10f\n", longitude, latitude);
             }
 
-            char buf[128] = {0};
-            nmea_0183_serialize(&p, buf);
+            // char buf[128] = {0};
+            // nmea_0183_serialize(&p, buf);
 
-            printf("d: %s\n", buf);
+            // printf("d: %s\n", buf);
 
             free(sentence);
         }
