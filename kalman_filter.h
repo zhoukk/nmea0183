@@ -205,6 +205,8 @@ kalman_filter_new(int state_dimension, int observation_dimension) {
     kf->vertical_scratch = matrix_new(state_dimension, observation_dimension);
     kf->small_square_scratch = matrix_new(observation_dimension, observation_dimension);
     kf->big_square_scratch = matrix_new(state_dimension, state_dimension);
+
+    return kf;
 }
 
 void

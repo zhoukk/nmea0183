@@ -291,7 +291,7 @@ matrix_equal(matrix_t a, matrix_t b, double e) {
 
     for (int i = 0; i < a.rows; i++) {
         for (int j = 0; j < a.cols; j++) {
-            if (abs(a.data[i][j] - b.data[i][j]) > e) {
+            if (fabs(a.data[i][j] - b.data[i][j]) > e) {
                 return 0;
             }
         }
