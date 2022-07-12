@@ -95,6 +95,8 @@ void kalman_filter_update(kalman_filter_t *kf);
 #endif // _KALMAN_FILTER_H_
 
 #ifdef KALMAN_FILTER_IMPLEMENTATION
+#define MATRIX_IMPLEMENTATION
+#include "matrix.h"
 
 void
 kalman_filter_1d_init(kalman_filter_1d_t *state, double init_x, double init_p) {

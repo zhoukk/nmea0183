@@ -853,7 +853,7 @@ _token_time(nmea_token_t *t, int index, nmea_time_t *value) {
     size_t arg_len = strlen(arg);
 
     if (arg_len < 6) {
-        return -1;
+        return 0;
     }
 
     char harg[] = {arg[0], arg[1], '\0'};
@@ -889,7 +889,7 @@ _token_date(nmea_token_t *t, int index, nmea_date_t *value) {
     size_t arg_len = strlen(arg);
 
     if (arg_len < 6) {
-        return -1;
+        return 0;
     }
 
     char darg[] = {arg[0], arg[1], '\0'};
